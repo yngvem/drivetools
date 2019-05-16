@@ -286,6 +286,7 @@ def sync_folder(
 def authenticate_gdrive(credentials_file, load=True, save=True):
     # Cheekily stolen from dano on SO
     # Link: https://stackoverflow.com/questions/24419188/automating-pydrive-verification-process
+    credentials_file = Path(credentials_file)
     gauth = GoogleAuth()
     if credentials_file.is_file() and load:
         gauth.LoadCredentialsFile(credentials_file)
