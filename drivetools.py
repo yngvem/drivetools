@@ -263,7 +263,7 @@ def sync_folder(
     """
     remote_parent_id = create_gdrive_path(drive, remote_parent)
     local_folder = Path(local_folder)
-    file_list = get_gdrive_file_list(drive, remote_parent_id=parent_id)
+    file_list = get_gdrive_file_list(drive, remote_parent_id=remote_parent_id)
 
     sub_directories = _sync_folder_non_recursive(
         drive,
