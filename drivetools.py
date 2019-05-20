@@ -234,6 +234,7 @@ def _sync_folder_non_recursive(
     file_list,
     verbose=False
 ):
+    file_list = [f for f in file_list if remote_parent_id in f['parents']]
     sub_directories = []
     # Iterate over files and add folders to stack
     for path in local_folder.iterdir():
@@ -257,13 +258,15 @@ def sync_folder(
     drive,
     local_folder,
     remote_parent,
-    verbose=False
+    verbose=False,
+    file_list=None
 ):
     """A breadth first traversal of the file tree.
     """
     remote_parent_id = create_gdrive_path(drive, remote_parent)
     local_folder = Path(local_folder)
-    file_list = get_gdrive_file_list(drive, remote_parent_id=remote_parent_id)
+    if file_list is None:
+        file_list = get_gdrive_file_list(drive, remote_parent_id=remote_parent_id)
 
     sub_directories = _sync_folder_non_recursive(
         drive,
@@ -273,13 +276,15 @@ def sync_folder(
         verbose=verbose
     )
 
+    # Recursive part
     for sub_directory in sub_directories:
         new_remote_parent = Path(remote_parent)/sub_directory.name
         sync_folder(
             drive=drive,
             local_folder=sub_directory,
             remote_parent=new_remote_parent,
-            verbose=verbose
+            verbose=verbose,
+            file_list=file_list
         )
 
 
