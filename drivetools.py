@@ -112,11 +112,14 @@ def upload_file(
     local_file,
     remote_parent_id=None,
     remote_parent_path=None,
-    file_id=None
+    file_id=None,
+    file_list=None
 ):
     if remote_parent_path is not None:
         assert remote_parent_id is not None
-        remote_parent_id = get_gdrive_path_id(drive, remote_parent_path)
+        remote_parent_id = get_gdrive_path_id(
+            drive, remote_parent_path, file_list=file_list
+        )
 
     file_params = _create_file_params(
         local_file,
@@ -146,17 +149,19 @@ def get_gdrive_folder_id(drive, folder, parent, file_list):
     if parent is None:
         parent = 'root'
 
-    get_gdrive_file_list(drive, remote_parent_id=parent, file_list=file_list)
+    file_list = get_gdrive_file_list(
+        drive, remote_parent_id=parent, file_list=file_list
+    )
     for f in file_list:
         if f['title'] == folder and f['mimeType'] == FOLDER_MIME_TYPE:
             return f['id']
     return None
 
 
-def get_gdrive_path_id(drive, path):
+def get_gdrive_path_id(drive, path, file_list):
     parent = None
     for folder in PathStack(path):
-        parent = get_gdrive_folder_id(drive, folder, parent)
+        parent = get_gdrive_folder_id(drive, folder, parent, file_list)
 
     return parent
 
@@ -183,7 +188,9 @@ def create_gdrive_folder(drive, folder, parent, file_list):
 def create_gdrive_path(drive, path, file_list):
     id_ = None
     for folder in PathStack(path):
-        id_ = create_gdrive_folder(drive, folder, parent=id_, file_list=file_list)
+        id_ = create_gdrive_folder(
+            drive, folder, parent=id_, file_list=file_list
+        )
 
     return id_
 
@@ -209,6 +216,7 @@ def sync_file(
             local_file,
             remote_parent_id=remote_parent_id,
             remote_parent_path=remote_parent_path,
+            file_list=file_list
         )
 
     remote_modification_date = get_gdrive_modification_date(
@@ -264,7 +272,9 @@ def sync_folder(
     remote_parent_id = create_gdrive_path(drive, remote_parent, file_list)
     local_folder = Path(local_folder)
     if file_list is None:
-        file_list = get_gdrive_file_list(drive, remote_parent_id=remote_parent_id)
+        file_list = get_gdrive_file_list(
+            drive, remote_parent_id=remote_parent_id
+        )
 
     sub_directories = _sync_folder_non_recursive(
         drive,
