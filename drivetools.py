@@ -59,7 +59,7 @@ def get_gdrive_modification_date(drive, file_id, file_list=None):
         drive_file = drive.CreateFile({'id': file_id})
 
     return datetime.strptime(
-        drive_file['modifiedDate'],
+        drive_file['modifiedDate'].replace('Z', '+0000'),
         "%Y-%m-%dT%H:%M:%S.%f%z"
     )
 
