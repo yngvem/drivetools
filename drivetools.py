@@ -140,15 +140,13 @@ def _gdrive_file_exists(
     return False
 
 
-def get_gdrive_folder_id(drive, folder, parent):
+def get_gdrive_folder_id(drive, folder, parent, file_list):
     """Return the ID of a folder that matches the given name and parent.
     """
     if parent is None:
         parent = 'root'
 
-    file_list = drive.ListFile(
-        {'q': f"'{parent}' in parents and trashed=false"}
-    ).GetList()
+    get_gdrive_file_list(drive, remote_parent_id=parent, file_list=file_list)
     for f in file_list:
         if f['title'] == folder and f['mimeType'] == FOLDER_MIME_TYPE:
             return f['id']
@@ -163,7 +161,7 @@ def get_gdrive_path_id(drive, path):
     return parent
 
 
-def create_gdrive_folder(drive, folder, parent):
+def create_gdrive_folder(drive, folder, parent, file_list):
     file_params = {
         "title": folder,
         "mimeType": "application/vnd.google-apps.folder"
@@ -171,7 +169,7 @@ def create_gdrive_folder(drive, folder, parent):
     if parent is not None:
         file_params["parents"] = [{"id": parent}]
 
-    folder_id = get_gdrive_folder_id(drive, folder, parent)
+    folder_id = get_gdrive_folder_id(drive, folder, parent, file_list)
     if folder_id is not None:
         return folder_id
 
@@ -182,10 +180,10 @@ def create_gdrive_folder(drive, folder, parent):
     return folder["id"]
 
 
-def create_gdrive_path(drive, path):
+def create_gdrive_path(drive, path, file_list):
     id_ = None
     for folder in PathStack(path):
-        id_ = create_gdrive_folder(drive, folder, parent=id_)
+        id_ = create_gdrive_folder(drive, folder, parent=id_, file_list=file_list)
 
     return id_
 
@@ -263,7 +261,7 @@ def sync_folder(
 ):
     """A breadth first traversal of the file tree.
     """
-    remote_parent_id = create_gdrive_path(drive, remote_parent)
+    remote_parent_id = create_gdrive_path(drive, remote_parent, file_list)
     local_folder = Path(local_folder)
     if file_list is None:
         file_list = get_gdrive_file_list(drive, remote_parent_id=remote_parent_id)
