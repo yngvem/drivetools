@@ -2,6 +2,11 @@ import argparse
 import drivetools
 
 
+def main(local_path, remote_path, credentials_file, verbose):
+    drive = drivetools.start_gdrive(credentials_file)
+    drivetools.sync_folder(drive, local_path, remote_path, verbose)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('local_path')
@@ -11,5 +16,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    drive = drivetools.start_gdrive(args.credentials_file)
-    drivetools.sync_folder(drive, args.local_path, args.remote_path, args.verbose)
+    main(
+        args.local_path, args.remote_path, args.credentials_file, args.verbose
+    )
