@@ -12,8 +12,10 @@ FileParams = NewType('FileParams', Dict)
 FileList = NewType('FileList', List[FileParams])
 RootFileList = NewType('RootFileList', FileList)
 FileID = NewType('FileID', Text)
+
 class LocalPath(type(Path())): pass
 RemotePath = NewType('RemotePath', Text)
+
 
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
@@ -96,12 +98,16 @@ def _create_file_params(
 def get_gdrive_file_list(
     drive: GoogleDrive,
     remote_parent_id: Union[FileID, None] = None,
-    file_list: Optional[FileList] = None
+    file_list: Optional[FileList] = None,
+    root_file_list: Optional[RootFileList] = None
 ) -> FileList:
     if file_list is not None:
         return file_list
 
     if remote_parent_id is not None:
+        if root_file_list is not None:
+            return _extract_file_list(root_file_list, remote_parent_id)
+
         return drive.ListFile(
             {'q': f"'{remote_parent_id}' in parents and trashed=false"}
         ).GetList()
@@ -112,7 +118,7 @@ def get_gdrive_file_list(
 
 
 def get_gdrive_root_file_list(
-    drive : GoogleDrive,
+    drive: GoogleDrive,
     root_file_list: Optional[FileList] = None
 ) -> RootFileList:
     return RootFileList(
@@ -126,7 +132,8 @@ def get_gdrive_file_id(
     drive: GoogleDrive,
     name: str,
     remote_parent_id: Union[FileID, None] = None,
-    file_list: Optional[FileList] = None
+    file_list: Optional[FileList] = None,
+    root_file_list: Optional[FileList] = None
 ) -> Optional[FileID]:
     file_list = get_gdrive_file_list(
         drive,
