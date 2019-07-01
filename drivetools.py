@@ -1,20 +1,23 @@
-from pathlib import Path
-import os
+# TODO: Use dicts instead of lists for drive filesystem
+from copy import copy
 from datetime import datetime, timezone
 from operator import itemgetter
-from typing import List, NewType, Dict, Union, NoReturn, Text, Optional
+import os
+from pathlib import Path
+from typing import List, NewType, Dict, Union, Text, Optional, Tuple, Any
 
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
 
 
-FileParams = NewType('FileParams', Dict)
-FileList = NewType('FileList', List[FileParams])
-RootFileList = NewType('RootFileList', FileList)
-FileID = NewType('FileID', Text)
+FileID = Union[Text, None]
+FileParams = NewType("FileParams", Dict[Text, Any])
+FileList = NewType("FileList", List[FileParams])
+RootFileList = NewType("RootFileList", FileList)
+DriveFiles = NewType("DriveFiles", Dict[FileID, FileParams])
 
-class LocalPath(type(Path())): pass
-RemotePath = NewType('RemotePath', Text)
+RemotePath = NewType("RemotePath", Text)
+LocalPath = NewType("LocalPath", Path)
 
 
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
@@ -23,7 +26,7 @@ FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 def _create_path_stack(path: RemotePath) -> List[str]:
     head, tail = os.path.split(path)
     path_stack = [tail]
-    while head != '':
+    while head != "":
         head, tail = os.path.split(head)
         path_stack.append(tail)
 
@@ -58,112 +61,78 @@ def get_local_modification_date(path: Path) -> datetime:
 
 
 def get_gdrive_modification_date(
-    drive: GoogleDrive,
-    file_id: Union[FileID, None],
-    file_list: Optional[FileList] = None
-) -> datetime:
-    if (
-        file_list is not None and
-        file_id in map(itemgetter('id'), file_list)
-    ):
-        drive_file = filter(
-            lambda x: x['id'] == file_id, file_list
-        ).__next__()
-    else:
-        drive_file = drive.CreateFile({'id': file_id})
+    drive: GoogleDrive, file_id: FileID, file_index: DriveFiles
+) -> Optional[datetime]:
+    """Get the modification date of a Drive file, None if it doesn't exist.
+    """
+    drive_file = file_index[file_id]
 
     return datetime.strptime(
-        drive_file['modifiedDate'].replace('Z', '+0000'),
+        drive_file["modifiedDate"].replace("Z", "+0000"),
         "%Y-%m-%dT%H:%M:%S.%f%z"
     )
 
 
 def _create_file_params(
     local_file: Path,
-    remote_parent_id: Union[FileID, None] = None,
+    remote_parent_id: FileID = None,
     remote_parent_path: RemotePath = None,
-    file_id: Union[FileID, None] = None
+    file_id: FileID = None,
 ) -> FileParams:
+    """Create parameters for file to be uploaded.
+    """
     local_file = Path(local_file)
-    file_params: FileParams = {'title': local_file.name}
+    file_params = FileParams({"title": local_file.name})
 
     if remote_parent_id is not None:
-        file_params['parents'] = [{"id": remote_parent_id}]
+        file_params["parents"] = [{"id": remote_parent_id}]
     if file_id is not None:
-        file_params['id'] = file_id
+        file_params["id"] = file_id
 
     return file_params
 
 
-def get_gdrive_file_list(
-    drive: GoogleDrive,
-    remote_parent_id: Union[FileID, None] = None,
-    file_list: Optional[FileList] = None,
-    root_file_list: Optional[RootFileList] = None
-) -> FileList:
-    if file_list is not None:
-        return file_list
-
-    if remote_parent_id is not None:
-        if root_file_list is not None:
-            return _extract_file_list(root_file_list, remote_parent_id)
-
-        return drive.ListFile(
-            {'q': f"'{remote_parent_id}' in parents and trashed=false"}
-        ).GetList()
-
-    return drive.ListFile(
-        {'q': f"trashed=false"}
-    ).GetList()
+def is_child(file_params: FileParams, file_id: FileID) -> bool:
+    return file_id in map(itemgetter('id'), file_params["parents"])
 
 
-def get_gdrive_root_file_list(
-    drive: GoogleDrive,
-    root_file_list: Optional[FileList] = None
-) -> RootFileList:
-    return RootFileList(
-        get_gdrive_file_list(
-            drive, remote_parent_id=None, file_list=root_file_list
+def is_in_root(file_params: FileParams) -> bool:
+    no_parents = len(file_params["parents"]) == 0
+    root_parent = any(map(itemgetter("isRoot"), file_params["parents"]))
+    return no_parents or root_parent
+
+
+def get_children(file_index: DriveFiles, parent_id: FileID) -> DriveFiles:
+    if parent_id is None:
+        return DriveFiles(
+            {id_: fp for id_, fp in file_index.items() if is_in_root(fp)}
         )
+
+    return DriveFiles(
+        {id_: fp for id_, fp in file_index.items() if is_child(fp, parent_id)}
     )
 
 
-def get_gdrive_file_id(
-    drive: GoogleDrive,
-    name: str,
-    remote_parent_id: Union[FileID, None] = None,
-    file_list: Optional[FileList] = None,
-    root_file_list: Optional[FileList] = None
-) -> Optional[FileID]:
-    file_list = get_gdrive_file_list(
-        drive,
-        remote_parent_id=remote_parent_id,
-        file_list=file_list
-    )
-    for file_ in file_list:
-        if name in file_['title']:
-            return file_['id']
-    return None
+def get_gdrive_root_file_list(drive: GoogleDrive) -> RootFileList:
+    return drive.ListFile({"q": "trashed=false"}).GetList()
+
+
+def file_list_to_index(file_list: FileList) -> DriveFiles:
+    return DriveFiles({file_["id"]: file_ for file_ in file_list})
+
+
+def get_gdrive_file_index(drive):
+    return file_list_to_index(get_gdrive_root_file_list(drive))
 
 
 def upload_file(
     drive: GoogleDrive,
     local_file: Path,
-    remote_parent_id: Union[FileID, None] = None,
-    remote_parent_path: RemotePath = None,
-    file_id: Union[FileID, None] = None,
-    file_list: Optional[FileList] = None
-) -> NoReturn:
-    if remote_parent_path is not None:
-        assert remote_parent_id is not None
-        remote_parent_id = get_gdrive_path_id(
-            drive, remote_parent_path, file_list=file_list
-        )
-
+    remote_parent_id: FileID,
+    file_id: FileID,
+):
     file_params = _create_file_params(
-        local_file,
-        remote_parent_id=remote_parent_id,
-        file_id=file_id,
+        local_file, remote_parent_id=remote_parent_id, file_id=file_id
     )
 
     drive_file = drive.CreateFile(file_params)
@@ -172,104 +141,50 @@ def upload_file(
 
 
 def _gdrive_file_exists(
-    drive: GoogleDrive,
-    filename: str,
-    remote_parent_id: Union[FileID, None] = None,
-    file_list: Optional[FileList] = None 
+    filename: Text, file_index: DriveFiles, remote_parent_id: FileID = None
 ) -> bool:
-    file_list = get_gdrive_file_list(
-        drive, remote_parent_id=remote_parent_id, file_list=file_list
-    )
-    if filename in map(itemgetter('title'), file_list):
+    children = get_children(file_index, remote_parent_id)
+    if filename in map(itemgetter("title"), children.values()):
         return True
     return False
 
 
-def get_gdrive_folder_id(
-    drive: GoogleDrive,
-    folder_name: Text,
-    remote_parent_id: Union[FileID, None],
-    file_list: Optional[FileList] = None
-) -> Optional[FileID]:
-    """Return the ID of a folder that matches the given name and parent.
-    """
-    if remote_parent_id is None:
-        remote_parent_id = FileID('root')
+def get_gdrive_file_id(
+    filename: Text, remote_parent_id: FileID, file_index: DriveFiles
+) -> FileID:
+    children = get_children(file_index, remote_parent_id)
 
-    file_list = get_gdrive_file_list(
-        drive, remote_parent_id=remote_parent_id, file_list=file_list
-    )
-    for f in file_list:
-        if f['title'] == folder_name and f['mimeType'] == FOLDER_MIME_TYPE:
-            return f['id']
+    for id_, file_ in children.items():
+        if file_["title"] == filename:
+            return id_
     return None
 
 
-def get_gdrive_path_id(
-    drive: GoogleDrive,
-    path: RemotePath,
-    file_list: Optional[FileList]
-) -> Optional[FileID]:
-    parent = None
-    for folder in PathStack(path):
-        parent = get_gdrive_folder_id(drive, folder, parent, file_list)
+def get_gdrive_folder_id(
+    filename: Text, remote_parent_id: FileID, file_index: DriveFiles
+):
+    children = get_children(file_index, remote_parent_id)
 
-    return parent
-
-
-def create_gdrive_folder(
-    drive: GoogleDrive,
-    folder_name: Text,
-    remote_parent_id: Union[FileID, None],
-    file_list: Optional[FileList]
-) -> FileID:
-    file_params = FileParams({
-        "title": folder_name,
-        "mimeType": "application/vnd.google-apps.folder"
-    })
-    if remote_parent_id is not None:
-        file_params["parents"] = [{"id": remote_parent_id}]
-
-    folder_id = get_gdrive_folder_id(
-        drive, folder_name, remote_parent_id, file_list
-    )
-    if folder_id is not None:
-        return FileID(folder_id)
-
-    drive_folder = drive.CreateFile(
-        file_params
-    )
-    drive_folder.Upload()
-    return FileID(drive_folder["id"])
-
-
-def create_gdrive_path(
-    drive: GoogleDrive,
-    path: RemotePath,
-    file_list: Optional[FileList]
-) -> Optional[FileID]:
-    id_ = None
-    for folder in PathStack(path):
-        id_ = create_gdrive_folder(
-            drive, folder, remote_parent_id=id_, file_list=file_list
-        )
-
-    return id_
+    for id_, file_ in children.items():
+        if (file_["title"] == filename and
+            file_["mimeType"] == FOLDER_MIME_TYPE):
+            return id_
+    return None
 
 
 def sync_file(
     drive: GoogleDrive,
     local_file: LocalPath,
-    remote_parent_id: Union[FileID, None] = None,
+    file_index: DriveFiles,
+    remote_parent_id: FileID = None,
     remote_parent_path: Optional[RemotePath] = None,
-    file_list: Optional[FileList] = None
-) -> None:
+):
     local_file = LocalPath(local_file)
+
     file_id = get_gdrive_file_id(
-        drive,
         local_file.name,
         remote_parent_id=remote_parent_id,
-        file_list=file_list
+        file_index=file_index
     )
 
     if file_id is None:
@@ -277,41 +192,30 @@ def sync_file(
             drive,
             local_file,
             remote_parent_id=remote_parent_id,
-            remote_parent_path=remote_parent_path,
-            file_list=file_list
+            file_id=file_id,
         )
         return
-
-    remote_modification_date = get_gdrive_modification_date(
-        drive,
-        file_id=file_id,
-        file_list=file_list
-    )
+    
     local_modification_date = get_local_modification_date(local_file)
+    remote_modification_date = get_gdrive_modification_date(
+        drive, file_id=file_id, file_index=file_index
+    )
+
     if remote_modification_date < local_modification_date:
         upload_file(
             drive,
             local_file,
-            file_id=file_id
+            remote_parent_id=remote_parent_id,
+            file_id=file_id,
         )
-
-
-def _extract_file_list(
-    root_file_list: RootFileList,
-    remote_parent_id: Union[FileID, None]
-) -> FileList:
-    def id_in_parents(f):
-        return remote_parent_id in map(itemgetter('id'), f['parents'])
-
-    return FileList([f for f in root_file_list if id_in_parents(f)])
 
 
 def _sync_folder_non_recursive(
     drive: GoogleDrive,
     local_folder: LocalPath,
-    remote_parent_id: Union[FileID, None],
-    file_list: Optional[FileList],
-    verbose: bool = False
+    remote_parent_id: FileID,
+    file_index: DriveFiles,
+    verbose: bool = False,
 ) -> List[LocalPath]:
     sub_directories = []
     # Iterate over files and add folders to stack
@@ -323,12 +227,40 @@ def _sync_folder_non_recursive(
             sub_directories.append(path)
         else:
             sync_file(
-                drive,
-                path,
-                remote_parent_id=remote_parent_id,
-                file_list=file_list
+                drive, path, remote_parent_id=remote_parent_id, file_index=file_index
             )
     return sub_directories
+
+
+def create_gdrive_folder(
+    drive: GoogleDrive,
+    folder: Text,
+    parent: FileID,
+    file_index: DriveFiles
+) -> Tuple[FileID, DriveFiles]:
+    file_index = copy(file_index)
+    file_params = FileParams({"title": folder, "mimeType": FOLDER_MIME_TYPE})
+    if parent is not None:
+        file_params["parents"] = [{"id": parent}]
+
+    folder = drive.CreateFile(file_params)
+    folder.Upload()
+    metadata = dict(folder)
+    file_index[metadata["id"]] = metadata
+    return metadata["id"], file_index
+
+
+def create_gdrive_path(
+    drive: GoogleDrive, remote_path: RemotePath, file_index: DriveFiles
+) -> Tuple[FileID, DriveFiles]:
+    parent = None
+    for folder in PathStack(remote_path):
+        id_ = get_gdrive_folder_id(folder, parent, file_index)
+        if id_ is None:
+            id_, file_index = create_gdrive_folder(drive, folder, parent, file_index)
+        parent = id_
+
+    return parent, file_index
 
 
 # TODO: Traverse file-tree first, get list of files to upload
@@ -337,48 +269,43 @@ def sync_folder(
     drive: GoogleDrive,
     local_folder: LocalPath,
     remote_parent_path: RemotePath,
+    file_index: Optional[DriveFiles] = None,
     verbose: bool = False,
-    root_file_list: RootFileList = None
 ):
     """A breadth first traversal of the file tree.
     """
-    remote_parent_id = create_gdrive_path(
-        drive, remote_parent_path, root_file_list
-    )
-    local_folder = LocalPath(local_folder)
-    if root_file_list is None:
-        root_file_list = get_gdrive_root_file_list(
-            drive, root_file_list=root_file_list
-        )
+    if file_index is None:
+        file_index = get_gdrive_file_index(drive)
 
-    file_list = _extract_file_list(root_file_list, remote_parent_id)
+    remote_parent_id, file_index = create_gdrive_path(drive, remote_parent_path, file_index)
+    local_folder = LocalPath(Path(local_folder))
 
     sub_directories = _sync_folder_non_recursive(
         drive,
         local_folder,
         remote_parent_id=remote_parent_id,
-        file_list=file_list,
-        verbose=verbose
+        file_index=file_index,
+        verbose=verbose,
     )
 
     # Recursive part
     for sub_directory in sub_directories:
-        new_remote_parent = RemotePath(os.path.join(
-            remote_parent_path, sub_directory.name
-        ))
-        sync_folder(
+        new_remote_parent = RemotePath(
+            os.path.join(remote_parent_path, sub_directory.name)
+        )
+        file_index = sync_folder(
             drive=drive,
             local_folder=sub_directory,
             remote_parent_path=new_remote_parent,
             verbose=verbose,
-            root_file_list=root_file_list
+            file_index=file_index,
         )
+
+    return file_index
 
 
 def authenticate_gdrive(
-    credentials_file: Path,
-    load: bool = True,
-    save: bool = True
+    credentials_file: Path, load: bool = True, save: bool = True
 ) -> GoogleAuth:
     # Cheekily stolen from dano on SO
     # Link: https://stackoverflow.com/questions/24419188/automating-pydrive-verification-process
