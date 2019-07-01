@@ -69,7 +69,7 @@ def get_gdrive_modification_date(
 
     return datetime.strptime(
         drive_file["modifiedDate"].replace("Z", "+0000"),
-        "%Y-%m-%dT%H:%M:%S.%f%z"
+        "%Y-%m-%dT%H:%M:%S.%f%z",
     )
 
 
@@ -93,7 +93,7 @@ def _create_file_params(
 
 
 def is_child(file_params: FileParams, file_id: FileID) -> bool:
-    return file_id in map(itemgetter('id'), file_params["parents"])
+    return file_id in map(itemgetter("id"), file_params["parents"])
 
 
 def is_in_root(file_params: FileParams) -> bool:
@@ -166,8 +166,10 @@ def get_gdrive_folder_id(
     children = get_children(file_index, remote_parent_id)
 
     for id_, file_ in children.items():
-        if (file_["title"] == filename and
-            file_["mimeType"] == FOLDER_MIME_TYPE):
+        if (
+            file_["title"] == filename
+            and file_["mimeType"] == FOLDER_MIME_TYPE
+        ):
             return id_
     return None
 
@@ -184,7 +186,7 @@ def sync_file(
     file_id = get_gdrive_file_id(
         local_file.name,
         remote_parent_id=remote_parent_id,
-        file_index=file_index
+        file_index=file_index,
     )
 
     if file_id is None:
@@ -195,7 +197,7 @@ def sync_file(
             file_id=file_id,
         )
         return
-    
+
     local_modification_date = get_local_modification_date(local_file)
     remote_modification_date = get_gdrive_modification_date(
         drive, file_id=file_id, file_index=file_index
@@ -227,16 +229,16 @@ def _sync_folder_non_recursive(
             sub_directories.append(path)
         else:
             sync_file(
-                drive, path, remote_parent_id=remote_parent_id, file_index=file_index
+                drive,
+                path,
+                remote_parent_id=remote_parent_id,
+                file_index=file_index,
             )
     return sub_directories
 
 
 def create_gdrive_folder(
-    drive: GoogleDrive,
-    folder: Text,
-    parent: FileID,
-    file_index: DriveFiles
+    drive: GoogleDrive, folder: Text, parent: FileID, file_index: DriveFiles
 ) -> Tuple[FileID, DriveFiles]:
     file_index = copy(file_index)
     file_params = FileParams({"title": folder, "mimeType": FOLDER_MIME_TYPE})
@@ -257,7 +259,9 @@ def create_gdrive_path(
     for folder in PathStack(remote_path):
         id_ = get_gdrive_folder_id(folder, parent, file_index)
         if id_ is None:
-            id_, file_index = create_gdrive_folder(drive, folder, parent, file_index)
+            id_, file_index = create_gdrive_folder(
+                drive, folder, parent, file_index
+            )
         parent = id_
 
     return parent, file_index
@@ -277,7 +281,9 @@ def sync_folder(
     if file_index is None:
         file_index = get_gdrive_file_index(drive)
 
-    remote_parent_id, file_index = create_gdrive_path(drive, remote_parent_path, file_index)
+    remote_parent_id, file_index = create_gdrive_path(
+        drive, remote_parent_path, file_index
+    )
     local_folder = LocalPath(Path(local_folder))
 
     sub_directories = _sync_folder_non_recursive(

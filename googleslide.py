@@ -12,7 +12,7 @@ class GooglePresentation:
         self.template = template
         self.name = name
         if self.name is None:
-            self.name = 'presentation.pptx'
+            self.name = "presentation.pptx"
         self.credentials_file = Path(credentials_file)
         self.parent = parent
 
@@ -28,12 +28,12 @@ class GooglePresentation:
         file_params = self.get_file_params(drive)
         drive_file = drive.CreateFile(file_params)
         drive_file.content = presentation_file
-        drive_file.Upload({'convert': True})
+        drive_file.Upload({"convert": True})
 
     def get_file_params(self, drive):
-        params = {'title': self.name}
+        params = {"title": self.name}
         if self.parent is not None:
-            params['parents'] = [
+            params["parents"] = [
                 {"id": drivetools.create_gdrive_path(drive, self.parent)}
             ]
         return params

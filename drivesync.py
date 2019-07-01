@@ -16,4 +16,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(args.local_path, args.remote_path, args.credentials_file, args.verbose)
+    main(
+        args.local_path, args.remote_path, args.credentials_file, args.verbose
+    )
